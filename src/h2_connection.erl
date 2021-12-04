@@ -115,7 +115,7 @@
 -endif.
 
 -spec start_client_link(gen_tcp | ssl,
-                        inet:ip_address() | inet:hostname(),
+                        inet:ip_address() | inet:hostname() | inet:socket_address(),
                         inet:port_number(),
                         [ssl:ssl_option()],
                         settings()
@@ -125,7 +125,7 @@ start_client_link(Transport, Host, Port, SSLOptions, Http2Settings) ->
     gen_statem:start_link(?MODULE, {client, Transport, Host, Port, SSLOptions, Http2Settings}, []).
 
 -spec start_client(gen_tcp | ssl,
-                        inet:ip_address() | inet:hostname(),
+                        inet:ip_address() | inet:hostname() | inet:socket_address(),
                         inet:port_number(),
                         [ssl:ssl_option()],
                         settings()

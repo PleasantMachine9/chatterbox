@@ -55,12 +55,19 @@ start_link() ->
     end.
 
 %% Start up with scheme and hostname only, default to standard ports
-%% and options
--spec start_link(http | https,
+%% and options.
+%% The unix option is only available when gen_tcp supports it.
+%% In case of a unix-based connection, the hostname is the
+%% socket file path (which starts with the special zero-byte
+%% if Linux's non-portable abstract socket address space
+%% is to be used, for example [0 | "socket-name"])
+-spec start_link(http | https | unix,
                  string()) ->
                         {ok, pid()}
                       | ignore
                       | {error, term()}.
+start_link(unix, Host) ->
+    start_link(unix, Host, 0);
 start_link(http, Host) ->
     start_link(http, Host, 80);
 start_link(https,Host) ->
@@ -68,7 +75,7 @@ start_link(https,Host) ->
 
 %% Start up with a specific port, or specific SSL options, but not
 %% both.
--spec start_link(http | https,
+-spec start_link(http | https | unix,
                  string(),
                  non_neg_integer() | [ssl:ssl_option()]) ->
                         {ok, pid()}
@@ -95,7 +102,7 @@ start_link(https, Host, SSLOptions)
 %% through here eventually, so this is where we turn 'http' and
 %% 'https' into 'gen_tcp' and 'ssl' for erlang module function calls
 %% later.
--spec start_link(http | https,
+-spec start_link(http | https | unix,
                  string(),
                  non_neg_integer(),
                  [ssl:ssl_option()]) ->
@@ -103,13 +110,9 @@ start_link(https, Host, SSLOptions)
                       | ignore
                       | {error, term()}.
 start_link(Transport, Host, Port, SSLOptions) ->
-    NewT = case Transport of
-               http -> gen_tcp;
-               https -> ssl
-           end,
-    h2_connection:start_client_link(NewT, Host, Port, SSLOptions, chatterbox:settings(client)).
+    start_apply(start_client_link, Transport, Host, Port, SSLOptions).
 
--spec start(http | https,
+-spec start(http | https | unix,
                  string(),
                  non_neg_integer(),
                  [ssl:ssl_option()]) ->
@@ -117,14 +120,27 @@ start_link(Transport, Host, Port, SSLOptions) ->
                       | ignore
                       | {error, term()}.
 start(Transport, Host, Port, SSLOptions) ->
-    NewT = case Transport of
-               http -> gen_tcp;
-               https -> ssl
-           end,
-    h2_connection:start_client(NewT, Host, Port, SSLOptions, chatterbox:settings(client)).
+    start_apply(start_client, Transport, Host, Port, SSLOptions).
+
+start_apply(FunctionName, Transport, Host, Port, SSLOptions) ->
+    {NewT, ActualHost, ActualPort} = case Transport of
+        % unix sockets need to be denoted by the {local, string()} tuple,
+        % and the port passed to gen_tcp must stricly be zero
+        unix -> case Host of
+            H when is_list(H) orelse is_binary(H) ->
+                {gen_tcp, {local, Host}, 0};
+            {local, H} when is_list(H) orelse is_binary(H) ->
+                {gen_tcp, Host, 0}
+        end;
+        http -> {gen_tcp, Host, Port};
+        https -> {ssl, Host, Port}
+    end,
+    apply(h2_connection, FunctionName,
+        [NewT, ActualHost, ActualPort, SSLOptions, chatterbox:settings(client)]).
 
 start_ssl_upgrade_link(Host, Port, InitialMessage, SSLOptions) ->
     h2_connection:start_ssl_upgrade_link(Host, Port, InitialMessage, SSLOptions, chatterbox:settings(client)).
+
 
 -spec stop(pid()) -> ok.
 stop(Pid) ->
